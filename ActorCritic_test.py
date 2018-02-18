@@ -89,6 +89,7 @@ def main():
 
 	env = gym.make('CartPole-v0')
 	# env = gym.make('MountainCar-v0')
+	print(env.spec.id)
 	
 	input_size_C = env.observation_space.shape[0] + env.action_space.n
 	output_size_C = 1
@@ -111,6 +112,7 @@ def main():
 			action_stack = np.empty(0).reshape(0, output_size_A)
 			reward_stack = np.empty(0).reshape(0, 1)
 			Q_stack = np.empty(0).reshape(0, 1)
+			A_stack = np.empty(0).reshape(0, 1)
 
 			step_counter = 0
 			while True:
@@ -132,10 +134,16 @@ def main():
 				state, reward, done, _ = env.step(a)
 				if done:
 					reward -= 100
+					# if(step_counter==200):
+					# 	reward -= 100
+					# else:
+					# 	reward += 100
 				reward_stack = np.vstack([reward_stack, reward])
-				Q_stack = np.vstack([Q_stack, discounted_Q(reward_stack, 0.95)])
+				Q_value = discounted_Q(reward_stack, 0.95)
+				Q_stack = np.vstack([Q_stack, Q_value])
+				A_stack = np.vstack([A_stack, Q_value-critic.critique(np.concatenate((state,temp_a)))])
 
-				if done or step_counter > 300:
+				if done or step_counter > 200:
 					print("Score of {}".format(len(traj)))
 					# if(len(traj)<=10):
 					# 	print(action_stack)
@@ -144,7 +152,7 @@ def main():
 					critic.update(traj, Q_stack)
 					# using updated discriminator, calculate the Q value
 					# actor update
-					actor.update(state_stack, action_stack, Q_stack)
+					actor.update(state_stack, action_stack, A_stack)
 					break
 					
 
