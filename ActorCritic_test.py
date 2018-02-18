@@ -26,18 +26,19 @@ class Critic:
 			layer2 = tf.nn.tanh(tf.matmul(layer1, W2) + b2)
 			W3 = tf.get_variable("W3", shape=[h2_size, self.output_size], initializer=tf.contrib.layers.xavier_initializer())
 			b3 = tf.get_variable("b3", shape=[self.output_size], initializer=tf.constant_initializer(0.0))
-			self._V = tf.nn.sigmoid(tf.matmul(layer2, W3) + b3)
-		
-		self._lossD = tf.square(V-y)
-		self._trainD = tf.train.AdamOptimizer(learning_rate=lr).minimize(self._lossD)
 
-	def critique(self, state_action):
+			self._C = tf.nn.sigmoid(tf.matmul(layer2, W3) + b3)
+		
+		self._lossC = -(tf.reduce_mean(tf.log(self._C))+tf.reduce_mean(tf.log(1-self._DE)))
+		self._trainC = tf.train.AdamOptimizer(learning_rate=lr).minimize(self._lossC)
+
+	def critique(self, state_action, expt):
 		traj = np.reshape(state_action, [1, self.input_size])
-		return self.session.run(self._D, feed_dict={self._traj: traj})
+		return self.session.run(self._C, feed_dict={self._traj: traj})
 
 	def update(self, state_action, stateE_actionE):
 		traj = state_action
-		return self.session.run([self._lossD, self._trainD], feed_dict={self._traj:traj})
+		return self.session.run([self._lossC, self._trainC], feed_dict={self._traj:traj})
 
 class Actor:
 	def __init__(self, session, input_size, output_size, name):
@@ -65,7 +66,7 @@ class Actor:
 
 		self._pa = tf.reduce_max(tf.multiply(self._PI, self._action))
 
-		self._lossPI = -(tf.reduce_mean(tf.log(self._pa)*self._A)-lamb*tf.reduce_sum(-self._pa*tf.log(self._pa)))
+		self._lossPI = -(tf.reduce_mean(tf.log(self._pa)*self._A))
 		self._trainPI = tf.train.AdamOptimizer(learning_rate=lr).minimize(self._lossPI)
 
 	def act(self, state):
@@ -99,17 +100,17 @@ def main():
 			for _ in range(max_episode):
 				done = False
 				state = env.reset()
-				# Todo
-				traj = np.empty(0).reshape(0, input_size_D)
-				state_stack = np.empty(0).reshape(0, input_size_P)
-				action_stack = np.empty(0).reshape(0, output_size_P)
+
+				traj = np.empty(0).reshape(0, input_size_C)
+				state_stack = np.empty(0).reshape(0, input_size_A)
+				action_stack = np.empty(0).reshape(0, output_size_A)
 				Q_stack = np.empty(0).reshape(0, 1)
 
 				step_counter = 0
 				while True:
 					step_counter += 1
 					env.render()
-					action_prob = policy.policyAt(state)[0]
+					action_prob = actor.act(state)[0]
 					# print(action_prob)
 					a = [1, 0] if(action_prob[0] > action_prob[1]) else [0, 1]
 					
@@ -125,18 +126,18 @@ def main():
 						# 	print(action_stack)
 
 						# discriminator update
-						discriminator.update(traj, tr_E)
+						critic.update(traj)
 						# using updated discriminator, calculate the Q value
 						D_SUM = 0
 						D_ct = 0
 						for j in range(traj.shape[0]+1,0,-1):
-							D_ct += 1
-							D_SUM += np.log(discriminator.discriminate(traj[j-2], 0))
-							Q = D_SUM/D_ct
-							Q_stack = np.vstack([Q_stack, Q])
-						Q_stack = np.flipud(Q_stack)
-						# policy.update
-						policy.update(state_stack, action_stack, Q_stack)
+							C_ct += 1
+							C_SUM += np.log(discriminator.discriminate(traj[j-2], 0))
+							A = C_SUM/C_ct
+							A_stack = np.vstack([A_stack, A])
+						A_stack = np.flipud(A_stack)
+						# actor update
+						actor.update(state_stack, action_stack, A_stack)
 						break
 					
 
