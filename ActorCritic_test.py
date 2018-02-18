@@ -26,23 +26,18 @@ class Critic:
 			layer2 = tf.nn.tanh(tf.matmul(layer1, W2) + b2)
 			W3 = tf.get_variable("W3", shape=[h2_size, self.output_size], initializer=tf.contrib.layers.xavier_initializer())
 			b3 = tf.get_variable("b3", shape=[self.output_size], initializer=tf.constant_initializer(0.0))
-			self._D = tf.nn.sigmoid(tf.matmul(layer2, W3) + b3)
+			self._V = tf.nn.sigmoid(tf.matmul(layer2, W3) + b3)
 		
-		self._lossD = -(tf.reduce_mean(tf.log(self._D))+tf.reduce_mean(tf.log(1-self._DE)))
+		self._lossD = tf.square(V-y)
 		self._trainD = tf.train.AdamOptimizer(learning_rate=lr).minimize(self._lossD)
 
-	def discriminate(self, state_action, expt):
+	def critique(self, state_action):
 		traj = np.reshape(state_action, [1, self.input_size])
-		if expt:
-			return self.session.run(self._DE, feed_dict={self._trajE: traj})
-		else:
-			return self.session.run(self._D, feed_dict={self._traj: traj})
+		return self.session.run(self._D, feed_dict={self._traj: traj})
 
 	def update(self, state_action, stateE_actionE):
-
 		traj = state_action
-		trajE = stateE_actionE
-		return self.session.run([self._lossD, self._trainD], feed_dict={self._traj:traj, self._trajE:trajE})
+		return self.session.run([self._lossD, self._trainD], feed_dict={self._traj:traj})
 
 class Actor:
 	def __init__(self, session, input_size, output_size, name):
@@ -66,54 +61,45 @@ class Actor:
 			W3 = tf.get_variable("W3", shape=[h2_size, self.output_size], initializer=tf.contrib.layers.xavier_initializer())
 			b3 = tf.get_variable("b3", shape=[self.output_size], initializer=tf.constant_initializer(0.0))
 			self._PI = tf.nn.softmax(tf.matmul(layer2, W3) + b3)
-			self._Q = tf.placeholder(tf.float32, [None, 1])
+			self._A = tf.placeholder(tf.float32, [None, 1])
 
 		self._pa = tf.reduce_max(tf.multiply(self._PI, self._action))
 
-		self._lossPI = -(tf.reduce_mean(tf.log(self._pa*self._Q))-lamb*tf.reduce_sum(-self._pa*tf.log(self._pa)))
+		self._lossPI = -(tf.reduce_mean(tf.log(self._pa)*self._A)-lamb*tf.reduce_sum(-self._pa*tf.log(self._pa)))
 		self._trainPI = tf.train.AdamOptimizer(learning_rate=lr).minimize(self._lossPI)
 
-	def policyAt(self, state):
+	def act(self, state):
 		x = np.reshape(state, [1, self.input_size])
 		return self.session.run(self._PI, feed_dict={self._state: x})
 		
 
-	def update(self, state, action_mat, Q):
-		return self.session.run([self._lossPI, self._trainPI], feed_dict={self._state:state, self._action:action_mat, self._Q:Q})
+	def update(self, state, action_mat, A):
+		return self.session.run([self._lossPI, self._trainPI], feed_dict={self._state:state, self._action:action_mat, self._A:A})
 
 
 def main():
 
 	env = gym.make('CartPole-v0')
 	
-	input_size_D = env.observation_space.shape[0] + env.action_space.n
-	output_size_D = 1
-	input_size_P = env.observation_space.shape[0]
-	output_size_P = env.action_space.n
+	input_size_C = env.observation_space.shape[0] + env.action_space.n
+	output_size_C = 1
+	input_size_A = env.observation_space.shape[0]
+	output_size_A = env.action_space.n
 
 	max_iter = 5
 	max_episode = 100
-
-	# load expert data that exceeds score of 200 (trained using DQN)
-	Expert_pool = []
-	for i in range(1,21):
-		traj_Expert = np.load("ExpertData/E"+str(i)+".npy")
-		Expert_pool += [traj_Expert]
 	
 	with tf.Session() as sess:
-		discriminator = Dnet(sess, input_size_D, output_size_D, "D")
-		policy = PInet(sess, input_size_P, output_size_P, "policy")
+		critic = Critic(sess, input_size_C, output_size_C, "Critic")
+		actor = Actor(sess, input_size_A, output_size_A, "Actor")
 		tf.global_variables_initializer().run()
 
 		for _ in range(max_iter):
 			# re-initializing the training environment
-			expert_idx = np.random.randint(0, len(Expert_pool))
-			tr_E = Expert_pool[expert_idx]
-			print("Using Expert {}".format(expert_idx))
 			for _ in range(max_episode):
 				done = False
 				state = env.reset()
-
+				# Todo
 				traj = np.empty(0).reshape(0, input_size_D)
 				state_stack = np.empty(0).reshape(0, input_size_P)
 				action_stack = np.empty(0).reshape(0, output_size_P)
